@@ -3,33 +3,44 @@
 #include <memory>
 
 struct Node {
-    // 这两个指针会造成什么问题？请修复
+    // shared 指针会造成相互引用导致内存无法真正释放
     std::shared_ptr<Node> next;
-    std::shared_ptr<Node> prev;
+    std::weak_ptr<Node> prev;
     // 如果能改成 unique_ptr 就更好了!
 
     int value;
 
     // 这个构造函数有什么可以改进的？
-    Node(int val) {
-        value = val;
-    }
+    Node(int val) : value(val) {}
 
     void insert(int val) {
         auto node = std::make_shared<Node>(val);
         node->next = next;
         node->prev = prev;
-        if (prev)
-            prev->next = node;
+        if (!prev.expired())
+            prev.lock()->next = node;
         if (next)
             next->prev = node;
     }
 
     void erase() {
-        if (prev)
-            prev->next = next;
+        if (!prev.expired())
+            prev.lock()->next = next;
         if (next)
             next->prev = prev;
+    }
+
+    Node(const Node &rhs) {
+        value = rhs.value;
+        next = nullptr;
+        prev = std::shared_ptr<Node>(nullptr);
+    }
+
+    Node & operator =(const Node &rhs) {
+        this->value = rhs.value;
+        this->next = nullptr;
+        this->prev = std::shared_ptr<Node>(nullptr);
+        return *this;
     }
 
     ~Node() {
@@ -44,8 +55,16 @@ struct List {
 
     List(List const &other) {
         printf("List 被拷贝！\n");
-        head = other.head;  // 这是浅拷贝！
-        // 请实现拷贝构造函数为 **深拷贝**
+        head = std::make_shared<Node>(other.head->value);
+        auto temp = other.head->next;
+        auto before = head;
+        while(temp) {
+            auto next = std::make_shared<Node>(temp->value);
+            before->next = next;
+            next->prev = before;
+            before = next;
+            temp = temp->next;
+        }
     }
 
     List &operator=(List const &) = delete;  // 为什么删除拷贝赋值函数也不出错？
